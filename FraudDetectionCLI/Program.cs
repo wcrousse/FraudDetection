@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Text;
+using Encog.Bot.Browse.Range;
 using Encog.ML;
 using Encog.ML.Data;
 using Encog.ML.Data.Basic;
@@ -22,9 +24,14 @@ namespace FraudDetectionCLI
 
         static void Main(string[] args)
         {
-            var transformedFilePath = ConfigurationManager.AppSettings["TrainingFilePath"];
+            var trainingFilePath = ConfigurationManager.AppSettings["TrainingFilePath"];
+            var transformedTrainingFilePath = trainingFilePath.Replace(".csv", "") + "-transformed.csv";
+            if (!File.Exists(transformedTrainingFilePath))
+            {
+                TransformCsv(trainingFilePath, transformedTrainingFilePath);
+            }
             var format = CSVFormat.English;
-            IVersatileDataSource source = new CSVDataSource(transformedFilePath, false, format);
+            IVersatileDataSource source = new CSVDataSource(transformedTrainingFilePath, false, format);
             var data = new VersatileMLDataSet(source) { NormHelper = { Format = format } };
             data.DefineSourceColumn("id", 0, ColumnType.Ignore);
             data.DefineSourceColumn("ip1", 1, ColumnType.Continuous);
@@ -81,10 +88,16 @@ namespace FraudDetectionCLI
                     EncogDirectoryPersistence.LoadObject(new FileInfo(ConfigurationManager.AppSettings["ModelFilePath"]));
                 Console.WriteLine("Loaded " + bestMethod);
             }
-
+            Console.WriteLine("Model init finished, press enter to begin analysis.");
             Console.ReadLine();
-
-            var csv = new ReadCSV(transformedFilePath, false, format);
+            Console.WriteLine("Beginning Analysis...");
+            var analysisFilePath = ConfigurationManager.AppSettings["AnalysisFilePath"];
+            var transformedAnalysisFilePath = trainingFilePath.Replace(".csv", "") + "-transformed.csv";
+            if (!File.Exists(transformedAnalysisFilePath))
+            {
+                TransformCsv(analysisFilePath, transformedAnalysisFilePath);
+            }
+            var csv = new ReadCSV(transformedAnalysisFilePath, false, format);
             var line = new string[15];
             IMLData input = helper.AllocateInputVector();
             var falsePositive = 0;
@@ -137,45 +150,43 @@ namespace FraudDetectionCLI
             Console.ReadLine();
         }
 
-        //        private static string TransformCsv(string filePath)
-        //        {
-        //            using (var sr = new StreamReader(filePath))
-        //            {
-        //                var newCsv = new List<string>();
-        //                string line;
-        //                while ((line = sr.ReadLine()) != null)
-        //                {
-        //                    var csvLine = line.Split(',');
-        //
-        //                    if (csvLine[1].ToUpper() != "NULL")
-        //                    {
-        //                        csvLine[1] = csvLine[1].Replace('.', ',');
-        //                    }
-        //                    else
-        //                    {
-        //                        csvLine[1] = "0,0,0,0";
-        //                    }
-        //
-        //                    if (csvLine[2].ToUpper() != "NULL")
-        //                    {
-        //                        var dateTime = DateTime.Parse(csvLine[2]);
-        //                        var secondsSinceMidnight = (dateTime - dateTime.Date).TotalSeconds;
-        //                        var dayOfTheWeek = (int)dateTime.DayOfWeek;
-        //                        var day = dateTime.Day;
-        //                        var month = dateTime.Month;
-        //                        csvLine[2] = String.Format("{0},{1},{2},{3}", secondsSinceMidnight, day, dayOfTheWeek, month);
-        //                    }
-        //                    else
-        //                    {
-        //                        csvLine[2] = "0,0,0,0";
-        //                    }
-        //
-        //                    newCsv.Add(String.Join(",", csvLine));
-        //                }
-        //                var newFilePath = filePath.Replace(".csv", "") + "-transformed.csv";
-        //                File.WriteAllLines(newFilePath, newCsv.ToArray());
-        //                return newFilePath;
-        //            }
-        //        }
+        private static void TransformCsv(string inputFilePath, string outputFilePath)
+        {
+            using (var sr = new StreamReader(inputFilePath))
+            {
+                var newCsv = new List<string>();
+                string line;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    var csvLine = line.Split(',');
+
+                    if (csvLine[1].ToUpper() != "NULL")
+                    {
+                        csvLine[1] = csvLine[1].Replace('.', ',');
+                    }
+                    else
+                    {
+                        csvLine[1] = "0,0,0,0";
+                    }
+
+                    if (csvLine[2].ToUpper() != "NULL")
+                    {
+                        var dateTime = DateTime.Parse(csvLine[2]);
+                        var secondsSinceMidnight = (dateTime - dateTime.Date).TotalSeconds;
+                        var dayOfTheWeek = (int)dateTime.DayOfWeek;
+                        var day = dateTime.Day;
+                        var month = dateTime.Month;
+                        csvLine[2] = String.Format("{0},{1},{2},{3}", secondsSinceMidnight, day, dayOfTheWeek, month);
+                    }
+                    else
+                    {
+                        csvLine[2] = "0,0,0,0";
+                    }
+
+                    newCsv.Add(String.Join(",", csvLine));
+                }
+                File.WriteAllLines(outputFilePath, newCsv.ToArray());
+            }
+        }
     }
 }

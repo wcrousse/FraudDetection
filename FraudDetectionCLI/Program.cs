@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -21,23 +23,30 @@ namespace FraudDetectionCLI
 {
     class Program
     {
+
         static void Main(string[] args)
         {
-            string fileName = "C:\\incentives_dataset.csv";
+            var transformedFilePath = TransformCsv(ConfigurationManager.AppSettings["TrainingFilePath"]);
             var format = new CSVFormat(',', ',');
-            IVersatileDataSource source = new CSVDataSource(fileName, false, format);
+            IVersatileDataSource source = new CSVDataSource(transformedFilePath, false, format);
             var data = new VersatileMLDataSet(source);
             data.NormHelper.Format = format;
             data.DefineSourceColumn("id",0, ColumnType.Ignore);
-            data.DefineSourceColumn("ip", 1, ColumnType.Nominal);
-            data.DefineSourceColumn("dateTime", 2, ColumnType.Nominal);
-            data.DefineSourceColumn("businessName", 3, ColumnType.Nominal);
-            data.DefineSourceColumn("totalCharged", 4, ColumnType.Continuous);
-            data.DefineSourceColumn("itemAmmount", 5, ColumnType.Continuous);
-            data.DefineSourceColumn("email", 6, ColumnType.Nominal);
-            data.DefineSourceColumn("brandName", 7, ColumnType.Nominal);
-            data.DefineSourceColumn("orderStatus", 8, ColumnType.Nominal);
-            ColumnDefinition outputColumn = data.DefineSourceColumn("isFraud", 9, ColumnType.Nominal);
+            data.DefineSourceColumn("ip1", 1, ColumnType.Continuous);
+            data.DefineSourceColumn("ip2", 2, ColumnType.Continuous);
+            data.DefineSourceColumn("ip3", 3, ColumnType.Continuous);
+            data.DefineSourceColumn("ip4", 4, ColumnType.Continuous);
+            data.DefineSourceColumn("seconds", 5, ColumnType.Continuous);
+            data.DefineSourceColumn("dayOfWeek", 6, ColumnType.Continuous);
+            data.DefineSourceColumn("day", 7, ColumnType.Continuous);
+            data.DefineSourceColumn("month", 8, ColumnType.Continuous);
+            data.DefineSourceColumn("businessName", 9, ColumnType.Nominal);
+            data.DefineSourceColumn("totalCharged", 10, ColumnType.Continuous);
+            data.DefineSourceColumn("itemAmmount", 11, ColumnType.Continuous);
+            data.DefineSourceColumn("email", 12, ColumnType.Nominal);
+            data.DefineSourceColumn("brandName", 13, ColumnType.Nominal);
+            data.DefineSourceColumn("orderStatus", 14, ColumnType.Nominal);
+            ColumnDefinition outputColumn = data.DefineSourceColumn("isFraud", 15, ColumnType.Nominal);
 
             data.Analyze();
 
@@ -61,19 +70,19 @@ namespace FraudDetectionCLI
             
             Console.ReadLine();
 
-            var csv = new ReadCSV(fileName, false, format);
-            var line = new string[9];
+            var csv = new ReadCSV(transformedFilePath, false, format);
+            var line = new string[15];
             IMLData input = helper.AllocateInputVector();
             while (csv.Next())
             {
                 var result = new StringBuilder();
-                for (int i = 0; i < 9; i++)
+                for (int i = 0; i < 15; i++)
                 {
                         line[i] = csv.Get(i);            
                     
                 }
 
-                string correct = csv.Get(9);
+                string correct = csv.Get(15);
                 
                 helper.NormalizeInputVector(
                     line, ((BasicMLData) input).Data, false);
@@ -86,7 +95,47 @@ namespace FraudDetectionCLI
                 result.Append(correct);
                 result.Append(")");
                 Console.WriteLine(result.ToString());
-                
+            }
+        }
+
+        private static string TransformCsv(string filePath)
+        {
+            using (var sr = new StreamReader(filePath))
+            {
+                var newCsv = new List<string>();
+                string line;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    var csvLine = line.Split(',');
+
+                    if (csvLine[1].ToUpper() != "NULL")
+                    {
+                        csvLine[1] = csvLine[1].Replace('.', ',');
+                    }
+                    else
+                    {
+                        csvLine[1] = "0,0,0,0";
+                    }
+
+                    if (csvLine[2].ToUpper() != "NULL")
+                    {
+                        var dateTime = DateTime.Parse(csvLine[2]);
+                        var secondsSinceMidnight = (dateTime - dateTime.Date).TotalSeconds;
+                        var dayOfTheWeek = (int) dateTime.DayOfWeek;
+                        var day = dateTime.Day;
+                        var month = dateTime.Month;
+                        csvLine[2] = String.Format("{0},{1},{2},{3}", secondsSinceMidnight, day, dayOfTheWeek, month);
+                    }
+                    else
+                    {
+                        csvLine[2] = "0,0,0,0";
+                    }
+
+                    newCsv.Add(String.Join(",", csvLine));
+                }
+                var newFilePath = filePath.Replace(".csv", "") + "-transformed.csv";
+                File.WriteAllLines(newFilePath, newCsv.ToArray());
+                return newFilePath;
             }
         }
     }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Configuration;
+using System.IO;
 using System.Text;
 using Encog.ML;
 using Encog.ML.Data;
@@ -10,6 +11,7 @@ using Encog.ML.Data.Versatile.Sources;
 using Encog.ML.Factory;
 using Encog.ML.Model;
 using Encog;
+using Encog.Persist;
 using Encog.Util.CSV;
 using Encog.Util.Simple;
 
@@ -40,26 +42,45 @@ namespace FraudDetectionCLI
             data.DefineSourceColumn("brandName", 13, ColumnType.Nominal);
             data.DefineSourceColumn("orderStatus", 14, ColumnType.Ignore);
             ColumnDefinition outputColumn = data.DefineSourceColumn("isFraud", 15, ColumnType.Nominal);
-
+            data.DefineSingleOutputOthersInput(outputColumn);
             data.Analyze();
 
-            data.DefineSingleOutputOthersInput(outputColumn);
             var model = new EncogModel(data);
+            NormalizationHelper helper = data.NormHelper;
+            IMLRegression bestMethod;
 
             model.SelectMethod(data, MLMethodFactory.TypeFeedforward);
             model.Report = new ConsoleStatusReportable();
 
             data.Normalize();
+            bool persistModel = ConfigurationManager.AppSettings["PersistModel"].ToLower() == "true";
+            bool retrainModel = ConfigurationManager.AppSettings["RetrainModel"].ToLower() == "true";
+            if (retrainModel || !persistModel)
+            {
+                model.HoldBackValidation(0.3, true, DateTime.Now.Millisecond);
+                model.SelectTrainingType(data);
+                bestMethod = (IMLRegression) model.Crossvalidate(100, false);
 
-            model.HoldBackValidation(0.3, true, DateTime.Now.Millisecond);// DateTime.Now.Millisecond);
-            model.SelectTrainingType(data);
-            var bestMethod = (IMLRegression)model.Crossvalidate(50, false);
-
-            Console.WriteLine("Training error: " + EncogUtility.CalculateRegressionError(bestMethod, model.TrainingDataset));
-            Console.WriteLine("Validation Error: " + EncogUtility.CalculateRegressionError(bestMethod, model.ValidationDataset));
-            NormalizationHelper helper = data.NormHelper;
-            Console.WriteLine(helper.ToString());
-            Console.WriteLine("Final Model: " + bestMethod);
+                Console.WriteLine("Training error: " +
+                                  EncogUtility.CalculateRegressionError(bestMethod, model.TrainingDataset));
+                Console.WriteLine("Validation Error: " +
+                                  EncogUtility.CalculateRegressionError(bestMethod, model.ValidationDataset));
+                Console.WriteLine(helper.ToString());
+                Console.WriteLine("Final Model: " + bestMethod);
+                if (persistModel)
+                {
+                    Console.WriteLine("Saving model...");
+                    EncogDirectoryPersistence.SaveObject(new FileInfo(ConfigurationManager.AppSettings["ModelFilePath"]), bestMethod);
+                    Console.Write("Saved.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("Loading model from file...");
+                bestMethod = (IMLRegression)
+                    EncogDirectoryPersistence.LoadObject(new FileInfo(ConfigurationManager.AppSettings["ModelFilePath"]));
+                Console.WriteLine("Loaded " + bestMethod);
+            }
 
             Console.ReadLine();
 

@@ -85,17 +85,22 @@ namespace FraudDetectionCLI
                 string correct = csv.Get(15);
                 
                 helper.NormalizeInputVector(
-                    line, ((BasicMLData) input).Data, false);
+                    line, ((BasicMLData) input).Data, true);
                 IMLData output = bestMethod.Compute(input);
-                string isFraud = (helper.DenormalizeOutputVectorToString(output)[0] == "1" ? "Fraud" : "Okay");
+                var isFraud = helper.DenormalizeOutputVectorToString(output)[0] == "1";
+                if (isFraud)
+                {
+                    Console.WriteLine("Holy shit, {0} is fraud!", line[0]);
+                }
                 result.Append(line);
                 result.Append(" -> predicted: ");
-                result.Append(isFraud);
+                result.Append(isFraud ? "Fraud" : "Okay");
                 result.Append(" (correct: ");
                 result.Append(correct);
                 result.Append(")");
-                Console.WriteLine(result.ToString());
+                Console.WriteLine(result);
             }
+            Console.ReadLine();
         }
 
         private static string TransformCsv(string filePath)

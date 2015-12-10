@@ -1,3 +1,4 @@
 FraudDetectionCLI/bin/*
 FraudDetectionCLI/obj/*
 FraudDetectionCLI/packages/*
+*.suo

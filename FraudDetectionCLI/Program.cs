@@ -24,7 +24,7 @@ namespace FraudDetectionCLI
         static void Main(string[] args)
         {
             var minAccuracy = Double.Parse(ConfigurationManager.AppSettings["MinimumAccuracyThreshold"]);
-            Console.WriteLine("Minimum accuracy set to {0}%" + minAccuracy*100);
+            Console.WriteLine("Minimum accuracy set to {0}%", minAccuracy*100);
             var data = LoadAndAnalyzeTrainingData();
 
             var model = new EncogModel(data);
@@ -38,7 +38,7 @@ namespace FraudDetectionCLI
                 iteration++;
                 Console.WriteLine("Beginning Iteration {0}.", iteration);
                 model.SelectMethod(data, MLMethodFactory.TypeFeedforward);
-                model.Report = new ConsoleStatusReportable();
+                //model.Report = new ConsoleStatusReportable();
 
                 data.Normalize();
                 bool persistModel = ConfigurationManager.AppSettings["PersistModel"].ToLower() == "true";
@@ -56,7 +56,6 @@ namespace FraudDetectionCLI
                 }
 
                 Console.WriteLine("Model init complete.");
-                Console.WriteLine("Beginning analysis...");
                 accuracy = AnalyzeFileWithNetwork(CSVFormat.English, helper, bestMethod);
                 Console.WriteLine("Accuracy of model: {0}%", accuracy*100);
                 if (accuracy < minAccuracy)
@@ -93,16 +92,27 @@ namespace FraudDetectionCLI
 
         private static IMLRegression TrainModel(EncogModel model, VersatileMLDataSet data, NormalizationHelper helper)
         {
+            var verboseMode = ConfigurationManager.AppSettings["VerboseMode"].ToLower() == "true";
+            if (verboseMode)
+            {
+                model.Report = new ConsoleStatusReportable();
+            }
+            else
+            {
+                SpinAnimation.Start();
+            }
             IMLRegression bestMethod;
             model.HoldBackValidation(0.3, true, DateTime.Now.Millisecond);
             model.SelectTrainingType(data);
-            bestMethod = (IMLRegression) model.Crossvalidate(20, false);
+            var numberOfFolds = Int32.Parse(ConfigurationManager.AppSettings["TrainingFolds"]);
+            bestMethod = (IMLRegression) model.Crossvalidate(numberOfFolds, false);
 
+            SpinAnimation.Stop();
             Console.WriteLine("Training error: " +
                               EncogUtility.CalculateRegressionError(bestMethod, model.TrainingDataset));
             Console.WriteLine("Validation Error: " +
                               EncogUtility.CalculateRegressionError(bestMethod, model.ValidationDataset));
-            Console.WriteLine(helper.ToString());
+            //Console.WriteLine(helper.ToString());
             Console.WriteLine("Final Model: " + bestMethod);
             return bestMethod;
         }
@@ -143,6 +153,7 @@ namespace FraudDetectionCLI
         private static double AnalyzeFileWithNetwork(CSVFormat format, NormalizationHelper helper, IMLRegression bestMethod)
         {
             Console.WriteLine("Beginning Analysis...");
+            SpinAnimation.Start();
             var analysisFilePath = ConfigurationManager.AppSettings["AnalysisFilePath"];
             var transformedAnalysisFilePath = analysisFilePath.Replace(".csv", "") + "-transformed.csv";
             if (!File.Exists(transformedAnalysisFilePath))
@@ -156,6 +167,7 @@ namespace FraudDetectionCLI
             var falseNegative = 0;
             var correctlyIdentifiedFraud = 0;
             var totalFraud = 0;
+            var totalRows = 0;
             while (csv.Next())
             {
                 var result = new StringBuilder();
@@ -165,22 +177,23 @@ namespace FraudDetectionCLI
                 }
 
                 string correct = csv.Get(15);
-                totalFraud += correct == "1" ? 1 : 0;
+                totalFraud += Int32.Parse(correct);
+                totalRows++;
 
                 helper.NormalizeInputVector(
                     line, ((BasicMLData) input).Data, true);
                 IMLData output = bestMethod.Compute(input);
                 var isFraud = helper.DenormalizeOutputVectorToString(output)[0] == "1";
-                if (isFraud)
-                {
-                    Console.WriteLine("Holy shit, {0} is fraud!", line[0]);
-                }
-                result.Append(line);
-                result.Append(" -> predicted: ");
-                result.Append(isFraud ? "Fraud" : "Okay");
-                result.Append(" (correct: ");
-                result.Append(correct);
-                result.Append(")");
+                //if (isFraud)
+                //{
+                //    Console.WriteLine("Holy shit, {0} is fraud!", line[0]);
+                //}
+                //result.Append(line);
+                //result.Append(" -> predicted: ");
+                //result.Append(isFraud ? "Fraud" : "Okay");
+                //result.Append(" (correct: ");
+                //result.Append(correct);
+                //result.Append(")");
 
                 if (isFraud)
                 {
@@ -192,16 +205,21 @@ namespace FraudDetectionCLI
                     {
                         falsePositive++;
                     }
-                    Console.WriteLine(result);
+                    //Console.WriteLine(result);
                 }
                 else if (correct == "1")
                 {
                     falseNegative++;
                 }
             }
-            Console.WriteLine("Correctly identified fraud: {0} False Positives: {1} FalseNegatives: {2}",
-                correctlyIdentifiedFraud, falsePositive, falseNegative);
-            return totalFraud != 0 ? correctlyIdentifiedFraud / totalFraud : 1;
+            SpinAnimation.Stop();
+            Console.WriteLine("Total fraud rows: {0}, Correctly identified fraud: {1}, False Positives: {2}, FalseNegatives: {3}, Total Rows Analyzed: {4}",
+                totalFraud, correctlyIdentifiedFraud, falsePositive, falseNegative, totalRows);
+            double accuratelyFoundRows = totalRows - (falsePositive + falseNegative);
+            double accuracy = totalRows != 0
+                ? Convert.ToDouble(accuratelyFoundRows)/Convert.ToDouble(totalRows)
+                : 1;
+            return accuracy;
         }
 
         private static void TransformCsv(string inputFilePath, string outputFilePath)

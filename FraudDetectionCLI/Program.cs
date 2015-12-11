@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Text;
-using Encog.Bot.Browse.Range;
 using Encog.ML;
 using Encog.ML.Data;
 using Encog.ML.Data.Basic;
@@ -24,42 +23,62 @@ namespace FraudDetectionCLI
 
         static void Main(string[] args)
         {
+            var minAccuracy = Double.Parse(ConfigurationManager.AppSettings["MinimumAccuracyThreshold"]);
+            Console.WriteLine("Minimum accuracy set to {0}%" + minAccuracy*100);
             var data = LoadAndAnalyzeTrainingData();
 
             var model = new EncogModel(data);
             NormalizationHelper helper = data.NormHelper;
-            IMLRegression bestMethod;
 
-            bestMethod = TrainOrLoadModel(model, data, helper);
+            var accuracy = 0.0;
+            var iteration = 0;
+            while (accuracy < minAccuracy)
+            {
+                IMLRegression bestMethod;
+                iteration++;
+                Console.WriteLine("Beginning Iteration {0}.", iteration);
+                model.SelectMethod(data, MLMethodFactory.TypeFeedforward);
+                model.Report = new ConsoleStatusReportable();
 
-            Console.WriteLine("Model init finished, press enter to begin analysis.");
-            Console.ReadLine();
+                data.Normalize();
+                bool persistModel = ConfigurationManager.AppSettings["PersistModel"].ToLower() == "true";
+                bool retrainModel = ConfigurationManager.AppSettings["RetrainModel"].ToLower() == "true";
+                string modelFilePath = ConfigurationManager.AppSettings["ModelFilePath"];
+                bool persistedModelExists = File.Exists(modelFilePath);
 
-            AnalyzeFileWithNetwork(CSVFormat.English, helper, bestMethod);
+                if (retrainModel || !persistModel || !persistedModelExists)
+                {
+                    bestMethod = TrainModel(model, data, helper);
+                }
+                else
+                {
+                    bestMethod = LoadModel(modelFilePath);
+                }
+
+                Console.WriteLine("Model init complete.");
+                Console.WriteLine("Beginning analysis...");
+                accuracy = AnalyzeFileWithNetwork(CSVFormat.English, helper, bestMethod);
+                Console.WriteLine("Accuracy of model: {0}%", accuracy*100);
+                if (accuracy < minAccuracy)
+                {
+                    Console.WriteLine("Iteration failed. Repeating...");
+                }
+                else
+                {
+                    Console.WriteLine("Iteration Success.");
+                    PersistModel(modelFilePath, bestMethod);
+                }
+            }
+
+            Console.WriteLine("Analysis Complete. Press enter to exit.");
             Console.ReadLine();
         }
 
-        private static IMLRegression TrainOrLoadModel(EncogModel model, VersatileMLDataSet data, NormalizationHelper helper)
+        private static void PersistModel(string modelFilePath, IMLRegression bestMethod)
         {
-            IMLRegression bestMethod;
-            model.SelectMethod(data, MLMethodFactory.TypeFeedforward);
-            model.Report = new ConsoleStatusReportable();
-
-            data.Normalize();
-            bool persistModel = ConfigurationManager.AppSettings["PersistModel"].ToLower() == "true";
-            bool retrainModel = ConfigurationManager.AppSettings["RetrainModel"].ToLower() == "true";
-            string modelFilePath = ConfigurationManager.AppSettings["ModelFilePath"];
-            bool persistedModelExists = File.Exists(modelFilePath);
-
-            if (retrainModel || !persistModel || !persistedModelExists)
-            {
-                bestMethod = TrainModel(model, data, helper, persistModel, modelFilePath);
-            }
-            else
-            {
-                bestMethod = LoadModel(modelFilePath);
-            }
-            return bestMethod;
+            Console.WriteLine("Saving model...");
+            EncogDirectoryPersistence.SaveObject(new FileInfo(modelFilePath), bestMethod);
+            Console.Write("Saved.");
         }
 
         private static IMLRegression LoadModel(string modelFilePath)
@@ -72,13 +91,12 @@ namespace FraudDetectionCLI
             return bestMethod;
         }
 
-        private static IMLRegression TrainModel(EncogModel model, VersatileMLDataSet data, NormalizationHelper helper,
-            bool persistModel, string modelFilePath)
+        private static IMLRegression TrainModel(EncogModel model, VersatileMLDataSet data, NormalizationHelper helper)
         {
             IMLRegression bestMethod;
             model.HoldBackValidation(0.3, true, DateTime.Now.Millisecond);
             model.SelectTrainingType(data);
-            bestMethod = (IMLRegression) model.Crossvalidate(100, false);
+            bestMethod = (IMLRegression) model.Crossvalidate(20, false);
 
             Console.WriteLine("Training error: " +
                               EncogUtility.CalculateRegressionError(bestMethod, model.TrainingDataset));
@@ -86,12 +104,6 @@ namespace FraudDetectionCLI
                               EncogUtility.CalculateRegressionError(bestMethod, model.ValidationDataset));
             Console.WriteLine(helper.ToString());
             Console.WriteLine("Final Model: " + bestMethod);
-            if (persistModel)
-            {
-                Console.WriteLine("Saving model...");
-                EncogDirectoryPersistence.SaveObject(new FileInfo(modelFilePath), bestMethod);
-                Console.Write("Saved.");
-            }
             return bestMethod;
         }
 
@@ -128,9 +140,8 @@ namespace FraudDetectionCLI
             return data;
         }
 
-        private static void AnalyzeFileWithNetwork(CSVFormat format, NormalizationHelper helper, IMLRegression bestMethod)
+        private static double AnalyzeFileWithNetwork(CSVFormat format, NormalizationHelper helper, IMLRegression bestMethod)
         {
-            string trainingFilePath;
             Console.WriteLine("Beginning Analysis...");
             var analysisFilePath = ConfigurationManager.AppSettings["AnalysisFilePath"];
             var transformedAnalysisFilePath = analysisFilePath.Replace(".csv", "") + "-transformed.csv";
@@ -144,6 +155,7 @@ namespace FraudDetectionCLI
             var falsePositive = 0;
             var falseNegative = 0;
             var correctlyIdentifiedFraud = 0;
+            var totalFraud = 0;
             while (csv.Next())
             {
                 var result = new StringBuilder();
@@ -153,6 +165,7 @@ namespace FraudDetectionCLI
                 }
 
                 string correct = csv.Get(15);
+                totalFraud += correct == "1" ? 1 : 0;
 
                 helper.NormalizeInputVector(
                     line, ((BasicMLData) input).Data, true);
@@ -188,6 +201,7 @@ namespace FraudDetectionCLI
             }
             Console.WriteLine("Correctly identified fraud: {0} False Positives: {1} FalseNegatives: {2}",
                 correctlyIdentifiedFraud, falsePositive, falseNegative);
+            return totalFraud != 0 ? correctlyIdentifiedFraud / totalFraud : 1;
         }
 
         private static void TransformCsv(string inputFilePath, string outputFilePath)

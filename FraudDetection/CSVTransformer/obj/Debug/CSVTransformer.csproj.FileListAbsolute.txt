@@ -1,0 +1,5 @@
+C:\Users\wrousse\Documents\FraudDetection\FraudDetection\CSVTransformer\bin\Debug\CSVTransformer.exe.config
+C:\Users\wrousse\Documents\FraudDetection\FraudDetection\CSVTransformer\bin\Debug\CSVTransformer.exe
+C:\Users\wrousse\Documents\FraudDetection\FraudDetection\CSVTransformer\bin\Debug\CSVTransformer.pdb
+C:\Users\wrousse\Documents\FraudDetection\FraudDetection\CSVTransformer\obj\Debug\CSVTransformer.exe
+C:\Users\wrousse\Documents\FraudDetection\FraudDetection\CSVTransformer\obj\Debug\CSVTransformer.pdb
